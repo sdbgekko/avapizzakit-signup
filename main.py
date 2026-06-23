@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://avaspizzakit.com", "https://www.avaspizzakit.com"],
+    allow_origins=["https://avaspizzakit.com","https://www.avaspizzakit.com","http://avaspizzakit.com","http://www.avaspizzakit.com"],
     allow_methods=["POST", "OPTIONS"], allow_headers=["*"],
 )
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
