@@ -75,8 +75,8 @@ def list_view(key: str = ""):
         for line in STORE.open():
             try: rows.append(json.loads(line))
             except Exception: pass
-    rows.sort(key=lambda r: r.get("ts",""), reverse=True)
-    trs = "".join("<tr><td>%d</td><td>%s</td><td>%s</td></tr>" % (len(rows)-i, r.get("email",""), (r.get("ts","")[:16].replace("T"," ")+" UTC")) for i,r in enumerate(rows))
+    rows.sort(key=lambda r: r.get("ts",""))
+    trs = "".join("<tr><td>%d</td><td>%s</td><td>%s</td></tr>" % (i+1, r.get("email",""), (r.get("ts","")[:16].replace("T"," ")+" UTC")) for i,r in enumerate(rows))
     if not trs: trs = "<tr><td colspan=3 style='text-align:center;color:#888;padding:24px'>No signups yet</td></tr>"
     plural = "" if len(rows)==1 else "s"
     tmpl = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
