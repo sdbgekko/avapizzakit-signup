@@ -78,16 +78,19 @@ def list_view(key: str = ""):
     rows.sort(key=lambda r: r.get("ts",""), reverse=True)
     trs = "".join("<tr><td>%d</td><td>%s</td><td>%s</td></tr>" % (len(rows)-i, r.get("email",""), (r.get("ts","")[:16].replace("T"," ")+" UTC")) for i,r in enumerate(rows))
     if not trs: trs = "<tr><td colspan=3 style='text-align:center;color:#888;padding:24px'>No signups yet</td></tr>"
-    html = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>Ava's Pizza Kit — Waitlist</title><meta http-equiv=refresh content=60>
+    plural = "" if len(rows)==1 else "s"
+    tmpl = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Ava's Pizza Kit - Waitlist</title><meta http-equiv=refresh content=60>
 <style>body{font-family:-apple-system,system-ui,sans-serif;background:#FBF8F1;color:#1C2B36;margin:0;padding:24px}
 .wrap{max-width:680px;margin:0 auto}h1{font-size:22px;margin:0 0 4px}.sub{color:#7a7468;margin:0 0 20px;font-size:14px}
 .dl{display:inline-block;background:#B4520F;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;margin-bottom:18px}
-table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+table{width:100PCT;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 th,td{text-align:left;padding:11px 14px;border-bottom:1px solid #eee;font-size:14px}th{background:#F4EEE0;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
 td:first-child,th:first-child{width:40px;color:#999}</style></head>
-<body><div class=wrap><h1>🍕 Ava's Pizza Kit — Waitlist</h1>
-<p class=sub>%d signup%s · updates automatically · bookmark this page</p>
-<a class=dl href="/export.csv?key=%s">⬇ Download CSV</a>
-<table><tr><th>#</th><th>Email</th><th>Signed up</th></tr>%s</table></div></body></html>""" % (len(rows), "" if len(rows)==1 else "s", key, trs)
+<body><div class=wrap><h1>&#127829; Ava's Pizza Kit - Waitlist</h1>
+<p class=sub>__COUNT__ signup__PLURAL__ &middot; updates automatically &middot; bookmark this page</p>
+<a class=dl href="/export.csv?key=__KEY__">&#11015; Download CSV</a>
+<table><tr><th>#</th><th>Email</th><th>Signed up</th></tr>__ROWS__</table></div></body></html>"""
+    html = (tmpl.replace("100PCT","100%").replace("__COUNT__",str(len(rows)))
+                .replace("__PLURAL__",plural).replace("__KEY__",key).replace("__ROWS__",trs))
     return HTMLResponse(html)
