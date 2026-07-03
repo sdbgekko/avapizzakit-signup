@@ -34,13 +34,22 @@ async def signup(req: Request):
     last = (data.get("lastName") or "").strip()[:80]
     zip_code = (data.get("zip") or "").strip()[:10]
     if zip_code and not ZIP_RE.match(zip_code): zip_code = ""
-    # dedupe
-    existing = set()
+    # dedupe by email — but a repeat signup MERGES new info into the existing row
+    rows = []
     if STORE.exists():
         for line in STORE.open():
-            try: existing.add(json.loads(line).get("email"))
+            try: rows.append(json.loads(line))
             except Exception: pass
-    if email not in existing:
+    match = next((r for r in rows if r.get("email") == email), None)
+    if match:
+        updated = False
+        for field, val in (("first_name", first), ("last_name", last), ("zip", zip_code)):
+            if val and val != match.get(field, ""):
+                match[field] = val; updated = True
+        if updated:  # keep original signed-up ts; rewrite store with merged row
+            with STORE.open("w") as f:
+                for r in rows: f.write(json.dumps(r)+"\n")
+    else:
         with STORE.open("a") as f:
             f.write(json.dumps({"email": email, "first_name": first, "last_name": last,
                                 "zip": zip_code, "ts": datetime.datetime.utcnow().isoformat()+"Z"})+"\n")
