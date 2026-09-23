@@ -106,6 +106,30 @@ async def delete_signup(req: Request):
             r["deleted_ts"] = datetime.datetime.utcnow().isoformat()+"Z"; f.write(json.dumps(r)+"\n")
     return {"ok": True, "count": len(rows)}
 
+@app.post("/update")
+async def update_signup(req: Request):
+    # 2026-09-23 (Sherman): fix first/last names from the list page. Key-gated; only names change.
+    try: data = await req.json()
+    except Exception: data = {}
+    if not EXPORT_KEY or data.get("key") != EXPORT_KEY:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    email = (data.get("email") or "").strip().lower()
+    first = (data.get("first_name") or "").strip()[:80]
+    last = (data.get("last_name") or "").strip()[:80]
+    rows, hit = [], None
+    if STORE.exists():
+        for line in STORE.open():
+            try: r = json.loads(line)
+            except Exception: continue
+            if r.get("email") == email:
+                r["first_name"], r["last_name"] = first, last; hit = r
+            rows.append(r)
+    if not hit:
+        return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+    with STORE.open("w") as f:
+        for r in rows: f.write(json.dumps(r)+"\n")
+    return {"ok": True, "first_name": first, "last_name": last}
+
 @app.get("/list", response_class=HTMLResponse)
 def list_view(key: str = ""):
     if not EXPORT_KEY or key != EXPORT_KEY:
@@ -117,7 +141,7 @@ def list_view(key: str = ""):
             except Exception: pass
     rows.sort(key=lambda r: r.get("ts",""))
     esc = lambda s: (s or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
-    trs = "".join("<tr data-email=\"%s\"><td>%d</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=act><button class=del title=\"Delete this signup\" aria-label=\"Delete\">&#128465;</button></td></tr>" % (esc(r.get("email","")), i+1, (esc(" ".join(x for x in (r.get("first_name",""), r.get("last_name","")) if x)) or "&mdash;"), esc(r.get("email","")), (esc(r.get("zip","")) or "&mdash;"), (r.get("ts","")[:16].replace("T"," ")+" UTC")) for i,r in enumerate(rows))
+    trs = "".join("<tr data-email=\"%s\" data-first=\"%s\" data-last=\"%s\"><td>%d</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=act><button class=edit title=\"Edit name\" aria-label=\"Edit name\">&#9998;</button><button class=del title=\"Delete this signup\" aria-label=\"Delete\">&#128465;</button></td></tr>" % (esc(r.get("email","")), esc(r.get("first_name","")), esc(r.get("last_name","")), i+1, (esc(" ".join(x for x in (r.get("first_name",""), r.get("last_name","")) if x)) or "&mdash;"), esc(r.get("email","")), (esc(r.get("zip","")) or "&mdash;"), (r.get("ts","")[:16].replace("T"," ")+" UTC")) for i,r in enumerate(rows))
     if not trs: trs = "<tr><td colspan=6 style='text-align:center;color:#888;padding:24px'>No signups yet</td></tr>"
     plural = "" if len(rows)==1 else "s"
     tmpl = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
@@ -128,8 +152,10 @@ def list_view(key: str = ""):
 table{width:100PCT;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 th,td{text-align:left;padding:11px 14px;border-bottom:1px solid #eee;font-size:14px}th{background:#F4EEE0;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
 td:first-child,th:first-child{width:40px;color:#999}
-td.act,th.act{width:44px;text-align:right;padding-right:10px}
-button.del{background:none;border:0;cursor:pointer;font-size:16px;opacity:.55;padding:4px 6px;border-radius:6px}button.del:hover{opacity:1;background:#F4EEE0}
+td.act,th.act{width:84px;text-align:right;padding-right:10px;white-space:nowrap}
+button.edit,button.del{background:none;border:0;cursor:pointer;font-size:16px;opacity:.55;padding:4px 6px;border-radius:6px}button.edit:hover,button.del:hover{opacity:1;background:#F4EEE0}
+tr.editing td{background:#FFF9EE}.ed{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.ed input{font:inherit;font-size:13px;padding:5px 8px;border:1px solid #ccc;border-radius:6px;width:120px}
+.ed button{font:inherit;font-size:13px;padding:6px 12px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer}.ed button.save{background:#B4520F;border-color:#B4520F;color:#fff;font-weight:600}
 tr.confirm td{background:#FFF4EC}
 .cf{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.cf span{font-weight:600}
 .cf button{font:inherit;font-size:13px;padding:6px 12px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer}
@@ -146,8 +172,29 @@ tr.confirm td{background:#FFF4EC}
   function renumber(){ var n=0; t.querySelectorAll("tr[data-email]").forEach(function(tr){ tr.cells[0].textContent = ++n; });
     document.getElementById("count").textContent = n + " signup" + (n===1?"":"s"); }
   t.addEventListener("click", function(e){
+    var eb = e.target.closest("button.edit"); if(!eb) return;
+    var tr = eb.closest("tr"); if(tr.classList.contains("editing") || tr.classList.contains("confirm")) return;
+    var email = tr.getAttribute("data-email"), first = tr.getAttribute("data-first"), last = tr.getAttribute("data-last");
+    var nameCell = tr.cells[1], savedName = nameCell.innerHTML;
+    tr.classList.add("editing");
+    nameCell.innerHTML = '<div class=ed><input class=fn placeholder="First" maxlength=80><input class=ln placeholder="Last" maxlength=80><button class=save>Save</button><button class=cancel>Cancel</button></div>';
+    nameCell.querySelector(".fn").value = first; nameCell.querySelector(".ln").value = last; nameCell.querySelector(".fn").focus();
+    function done(){ tr.classList.remove("editing"); }
+    nameCell.querySelector("button.cancel").onclick = function(){ nameCell.innerHTML = savedName; done(); };
+    nameCell.querySelector("button.save").onclick = function(){
+      var fn = nameCell.querySelector(".fn").value.trim(), ln = nameCell.querySelector(".ln").value.trim(); this.disabled = true; this.textContent = "Saving\u2026";
+      fetch("/update", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({key: KEY, email: email, first_name: fn, last_name: ln})})
+        .then(function(r){ return r.json(); })
+        .then(function(d){ if(d.ok){ tr.setAttribute("data-first", d.first_name); tr.setAttribute("data-last", d.last_name);
+                             nameCell.textContent = (d.first_name + " " + d.last_name).trim() || "\u2014"; msg.textContent = "Saved name for " + email + "."; done(); }
+                           else { msg.textContent = "Could not save: " + (d.error || "unknown error"); nameCell.innerHTML = savedName; done(); } })
+        .catch(function(){ msg.textContent = "Could not reach the server. Reload and try again."; nameCell.innerHTML = savedName; done(); });
+    };
+    nameCell.addEventListener("keydown", function(ev){ if(ev.key === "Enter"){ ev.preventDefault(); var s = nameCell.querySelector("button.save"); if(s) s.click(); } if(ev.key === "Escape"){ var c = nameCell.querySelector("button.cancel"); if(c) c.click(); } });
+  });
+  t.addEventListener("click", function(e){
     var b = e.target.closest("button.del"); if(!b) return;
-    var tr = b.closest("tr"); if(tr.classList.contains("confirm")) return;
+    var tr = b.closest("tr"); if(tr.classList.contains("confirm") || tr.classList.contains("editing")) return;
     var email = tr.getAttribute("data-email"), name = tr.cells[1].textContent, saved = tr.cells[5].innerHTML;
     tr.classList.add("confirm");
     tr.cells[5].colSpan = 1; tr.cells[5].style.textAlign = "left"; tr.cells[5].style.width = "auto";
